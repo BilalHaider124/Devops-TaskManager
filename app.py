@@ -1,26 +1,49 @@
 from flask import Flask, request, redirect
+import psycopg
+import os
 
 app = Flask(__name__)
 
-tasks = []
+conn = psycopg.connect(
+    host=os.environ["DB_HOST"],
+    dbname=os.environ["DB_NAME"],
+    user=os.environ["DB_USER"],
+    password=os.environ["DB_PASSWORD"]
+)
+
+with conn.cursor() as cur:
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS tasks (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            completed BOOLEAN NOT NULL DEFAULT FALSE
+        )
+    """)
+
+conn.commit()
 
 
 @app.route("/")
 def home():
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, name, completed FROM tasks ORDER BY id")
+        tasks = cur.fetchall()
+
     task_list = ""
 
-    for index, task in enumerate(tasks):
-        status = "✅" if task["completed"] else "⬜"
+    for task in tasks:
+        task_id, task_name, completed = task
+        status = "✅" if completed else "⬜"
 
         task_list += f"""
         <li>
-            {status} {task["name"]}
+            {status} {task_name}
 
-            <form method="POST" action="/complete/{index}" style="display:inline;">
+            <form method="POST" action="/complete/{task_id}" style="display:inline;">
                 <button type="submit">Complete</button>
             </form>
 
-            <form method="POST" action="/delete/{index}" style="display:inline;">
+            <form method="POST" action="/delete/{task_id}" style="display:inline;">
                 <button type="submit">Delete</button>
             </form>
         </li>
@@ -46,24 +69,39 @@ def home():
 def add_task():
     task = request.form["task"]
 
-    tasks.append({
-        "name": task,
-        "completed": False
-    })
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO tasks (name) VALUES (%s)",
+            (task,)
+        )
+
+    conn.commit()
 
     return redirect("/")
 
 
-@app.route("/complete/<int:index>", methods=["POST"])
-def complete_task(index):
-    tasks[index]["completed"] = True
+@app.route("/complete/<int:task_id>", methods=["POST"])
+def complete_task(task_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE tasks SET completed = TRUE WHERE id = %s",
+            (task_id,)
+        )
+
+    conn.commit()
 
     return redirect("/")
 
 
-@app.route("/delete/<int:index>", methods=["POST"])
-def delete_task(index):
-    tasks.pop(index)
+@app.route("/delete/<int:task_id>", methods=["POST"])
+def delete_task(task_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM tasks WHERE id = %s",
+            (task_id,)
+        )
+
+    conn.commit()
 
     return redirect("/")
 
