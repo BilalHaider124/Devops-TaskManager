@@ -1,33 +1,50 @@
 from flask import Flask, request, redirect
 import psycopg
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 
-conn = psycopg.connect(
-    host=os.environ["DB_HOST"],
-    dbname=os.environ["DB_NAME"],
-    user=os.environ["DB_USER"],
-    password=os.environ["DB_PASSWORD"]
-)
 
-with conn.cursor() as cur:
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS tasks (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            completed BOOLEAN NOT NULL DEFAULT FALSE
-        )
-    """)
+@app.route("/health")
+def health():
+    return "OK", 200
 
-conn.commit()
+def get_connection():
+    return psycopg.connect(
+        host=os.environ["DB_HOST"],
+        dbname=os.environ["DB_NAME"],
+        user=os.environ["DB_USER"],
+        password=os.environ["DB_PASSWORD"]
+    )
+
+def init_db():
+    conn = get_connection()
+
+    with conn.cursor() as cur:
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                id SERIAL PRIMARY KEY,
+                name TEXT NOT NULL,
+                completed BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        """)
+
+    conn.commit()
+    conn.close()
 
 
 @app.route("/")
 def home():
+    conn = get_connection()
+
     with conn.cursor() as cur:
         cur.execute("SELECT id, name, completed FROM tasks ORDER BY id")
         tasks = cur.fetchall()
+
+    conn.close()
 
     task_list = ""
 
@@ -69,6 +86,8 @@ def home():
 def add_task():
     task = request.form["task"]
 
+    conn = get_connection()
+
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO tasks (name) VALUES (%s)",
@@ -76,12 +95,15 @@ def add_task():
         )
 
     conn.commit()
+    conn.close()
 
     return redirect("/")
 
 
 @app.route("/complete/<int:task_id>", methods=["POST"])
 def complete_task(task_id):
+    conn = get_connection()
+
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE tasks SET completed = TRUE WHERE id = %s",
@@ -89,12 +111,15 @@ def complete_task(task_id):
         )
 
     conn.commit()
+    conn.close()
 
     return redirect("/")
 
 
 @app.route("/delete/<int:task_id>", methods=["POST"])
 def delete_task(task_id):
+    conn = get_connection()
+
     with conn.cursor() as cur:
         cur.execute(
             "DELETE FROM tasks WHERE id = %s",
@@ -102,9 +127,11 @@ def delete_task(task_id):
         )
 
     conn.commit()
+    conn.close()
 
     return redirect("/")
 
 
 if __name__ == "__main__":
+    init_db()
     app.run(host="0.0.0.0", port=5000)
